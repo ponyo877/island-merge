@@ -36,7 +36,7 @@ func NewMainMenu(onModeSelect func(int)) *Menu {
 		text   string
 		action func()
 	}{
-		{"Classic Mode", func() { onModeSelect(0) }}, // ModeClassic
+		{"Select Level", func() { onModeSelect(0) }}, // Level Select
 		{"Time Attack", func() { onModeSelect(1) }}, // ModeTimeAttack
 		{"Puzzle Mode", func() { onModeSelect(2) }}, // ModePuzzle
 		{"Level Editor", func() { onModeSelect(3) }}, // Level Editor

@@ -1,12 +1,14 @@
 package core
 
 import (
+	"image/color"
 	"time"
 	
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ponyo877/island-merge/pkg/achievements"
 	"github.com/ponyo877/island-merge/pkg/editor"
 	"github.com/ponyo877/island-merge/pkg/island"
+	"github.com/ponyo877/island-merge/pkg/levels"
 	"github.com/ponyo877/island-merge/pkg/storage"
 	"github.com/ponyo877/island-merge/pkg/systems"
 	"github.com/ponyo877/island-merge/pkg/ui"
@@ -23,12 +25,16 @@ type Game struct {
 	achievementUI   *ui.AchievementsUI
 	saveSystem      *storage.SaveSystem
 	saveLoadUI      *ui.SaveLoadUI
+	levelManager    *levels.LevelManager
+	levelSelectUI   *ui.LevelSelectUI
+	currentLevel    *levels.LevelData
 }
 
 func NewGame() *Game {
 	achievementSys := achievements.NewAchievementSystem()
 	saveSystem := storage.NewSaveSystem()
 	levelEditor := editor.NewLevelEditor()
+	levelManager := levels.NewLevelManager()
 	
 	game := &Game{
 		input:          systems.NewInputSystem(),
@@ -39,6 +45,8 @@ func NewGame() *Game {
 		achievementUI:  ui.NewAchievementsUI(achievementSys),
 		saveSystem:     saveSystem,
 		saveLoadUI:     ui.NewSaveLoadUI(saveSystem),
+		levelManager:   levelManager,
+		levelSelectUI:  ui.NewLevelSelectUI(levelManager),
 	}
 	
 	// Set up callbacks
@@ -48,6 +56,11 @@ func NewGame() *Game {
 	
 	game.saveLoadUI.OnSaveGame = game.saveGame
 	game.saveLoadUI.OnLoadGame = game.loadGame
+	
+	game.levelSelectUI.OnLevelSelected = game.startLevel
+	game.levelSelectUI.OnBack = func() {
+		game.world.State = StateMenu
+	}
 	
 	// Try to load saved achievements
 	game.loadAchievements()
@@ -64,10 +77,16 @@ func NewGame() *Game {
 }
 
 func (g *Game) handleMenuAction(action int) {
-	if action == 3 { // Level Editor
+	switch action {
+	case 0: // Level Select
+		g.world.State = StateLevelSelect
+		g.levelSelectUI.Show()
+	case 1: // Time Attack
+		g.startGameMode(1)
+	case 2: // Puzzle Mode
+		g.startGameMode(2)
+	case 3: // Level Editor
 		g.world.State = StateLevelEditor
-	} else {
-		g.startGameMode(action)
 	}
 }
 
@@ -92,6 +111,62 @@ func (g *Game) startGameMode(mode int) {
 	g.achievementSys.OnGameStart()
 }
 
+func (g *Game) startLevel(levelData *levels.LevelData) {
+	// Create board from level data
+	board := island.NewBoard(levelData.Width, levelData.Height)
+	
+	// Set tiles according to level grid
+	for y := 0; y < levelData.Height; y++ {
+		for x := 0; x < levelData.Width; x++ {
+			if y < len(levelData.Grid) && x < len(levelData.Grid[y]) {
+				board.SetTile(x, y, levelData.Grid[y][x])
+			}
+		}
+	}
+	
+	g.currentLevel = levelData
+	g.world = &World{
+		State:     StatePlaying,
+		Mode:      GameMode(int(levelData.Difficulty)),
+		Board:     board,
+		Score:     Score{},
+		StartTime: time.Now(),
+		TimeLimit: levelData.TimeLimit,
+	}
+	
+	// Track game start
+	g.achievementSys.OnGameStart()
+}
+
+func (g *Game) handleLevelCompletion(completionTime time.Duration, moves int) {
+	if g.currentLevel == nil {
+		return
+	}
+	
+	// Calculate stars
+	stars := g.levelManager.CalculateStars(g.currentLevel, moves, completionTime)
+	
+	// Create score record
+	score := &levels.Score{
+		Moves: moves,
+		Time:  completionTime,
+		Stars: stars,
+		Date:  time.Now(),
+	}
+	
+	// Update level progress
+	if g.currentLevel.BestScore == nil || stars > g.currentLevel.BestScore.Stars ||
+		(stars == g.currentLevel.BestScore.Stars && moves < g.currentLevel.BestScore.Moves) {
+		g.currentLevel.BestScore = score
+	}
+	
+	// Mark as completed and unlock next level
+	g.levelManager.UnlockNextLevel(g.currentLevel.ID)
+	
+	// Update progress tracking
+	g.levelManager.Progress[g.currentLevel.ID] = score
+}
+
 func (g *Game) Update() error {
 	// Update animations and achievements UI
 	g.animation.Update()
@@ -108,12 +183,16 @@ func (g *Game) Update() error {
 			// Save/Load UI handled the click
 		} else if g.achievementUI.HandleClick(action.X, action.Y) {
 			// Achievement UI handled the click
+		} else if g.levelSelectUI.HandleClick(action.X, action.Y) {
+			// Level select UI handled the click
 		} else {
 			switch g.world.State {
 			case StateMenu:
 				g.mainMenu.Update(action.X, action.Y, action.Type == systems.ActionClick)
 			case StatePlaying:
 				g.handleGameAction(action)
+			case StateLevelSelect:
+				// Level select is handled above
 			case StateLevelEditor:
 				if g.levelEditor.Update(action.X, action.Y, action.Type == systems.ActionClick) {
 					g.world.State = StateMenu // Return to menu
@@ -144,7 +223,17 @@ func (g *Game) Update() error {
 			gameTime := g.world.Score.Time
 			moves := g.world.Score.Moves
 			isTimeAttack := g.world.Mode == ModeTimeAttack
-			isPerfect := moves <= 2 // For the basic level, optimal is 2 moves
+			
+			// Calculate if perfect based on current level
+			isPerfect := false
+			if g.currentLevel != nil {
+				isPerfect = moves <= g.currentLevel.OptimalMoves
+				
+				// Handle level completion
+				g.handleLevelCompletion(gameTime, moves)
+			} else {
+				isPerfect = moves <= 2 // For legacy levels
+			}
 			
 			g.achievementSys.OnGameWin(moves, gameTime, isTimeAttack, isPerfect)
 		}
@@ -167,6 +256,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// Draw UI buttons
 		g.saveLoadUI.DrawSettingsButton(screen, 10, 10)
 		g.achievementUI.DrawAchievementButton(screen, 500, 10)
+	case StateLevelSelect:
+		// Draw a simple background
+		screen.Fill(color.RGBA{240, 240, 240, 255})
+		g.levelSelectUI.Draw(screen)
 	case StateLevelEditor:
 		g.levelEditor.Draw(screen)
 	}

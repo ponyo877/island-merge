@@ -14,26 +14,42 @@ import (
 )
 
 const (
-	TileSize = 64
+	MaxTileSize = 64
+	MinTileSize = 16
 	GridOffsetX = 160
 	GridOffsetY = 120
+	MaxGridWidth = 400  // Maximum grid display width
+	MaxGridHeight = 300 // Maximum grid display height
 )
 
 type RenderSystem struct {
 	// Cache for tile images
 	tileImages map[island.TileType]*ebiten.Image
+	currentTileSize int
+	viewportX, viewportY float64
+	zoom float64
 }
 
 func NewRenderSystem() *RenderSystem {
 	rs := &RenderSystem{
-		tileImages: make(map[island.TileType]*ebiten.Image),
+		tileImages:      make(map[island.TileType]*ebiten.Image),
+		currentTileSize: MaxTileSize,
+		zoom:           1.0,
 	}
 	rs.initTileImages()
 	return rs
 }
 
 func (rs *RenderSystem) initTileImages() {
-	// Create simple colored tiles for MVP
+	// Initialize with max tile size, will be dynamically resized
+	rs.createTileImages(MaxTileSize)
+}
+
+func (rs *RenderSystem) createTileImages(size int) {
+	// Clear existing images
+	rs.tileImages = make(map[island.TileType]*ebiten.Image)
+	
+	// Create simple colored tiles
 	colors := map[island.TileType]color.Color{
 		island.TileSea:    color.RGBA{64, 164, 223, 255},   // Blue
 		island.TileLand:   color.RGBA{139, 195, 74, 255},   // Green
@@ -41,15 +57,53 @@ func (rs *RenderSystem) initTileImages() {
 	}
 	
 	for tileType, col := range colors {
-		img := ebiten.NewImage(TileSize, TileSize)
+		img := ebiten.NewImage(size, size)
 		img.Fill(col)
 		rs.tileImages[tileType] = img
 	}
 }
 
+func (rs *RenderSystem) calculateTileSize(boardWidth, boardHeight int) int {
+	// Calculate optimal tile size to fit the board in the available space
+	maxWidthTileSize := MaxGridWidth / boardWidth
+	maxHeightTileSize := MaxGridHeight / boardHeight
+	
+	optimalSize := min(maxWidthTileSize, maxHeightTileSize)
+	
+	// Clamp to min/max tile sizes
+	if optimalSize < MinTileSize {
+		return MinTileSize
+	}
+	if optimalSize > MaxTileSize {
+		return MaxTileSize
+	}
+	
+	return optimalSize
+}
+
+func (rs *RenderSystem) updateTileSize(boardWidth, boardHeight int) {
+	newSize := rs.calculateTileSize(boardWidth, boardHeight)
+	if newSize != rs.currentTileSize {
+		rs.currentTileSize = newSize
+		rs.createTileImages(newSize)
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (rs *RenderSystem) Draw(screen *ebiten.Image, board *island.Board, moves int, gameWon bool) {
 	// Clear screen
 	screen.Fill(color.RGBA{240, 240, 240, 255})
+	
+	// Update tile size based on board dimensions
+	if board != nil {
+		rs.updateTileSize(board.Width, board.Height)
+	}
 	
 	// Draw board
 	rs.drawBoard(screen, board)
@@ -64,17 +118,21 @@ func (rs *RenderSystem) Draw(screen *ebiten.Image, board *island.Board, moves in
 }
 
 func (rs *RenderSystem) DrawHover(screen *ebiten.Image, board *island.Board, mouseX, mouseY int) {
+	if board == nil {
+		return
+	}
+	
 	// Convert mouse to grid coordinates
-	gridX := (mouseX - GridOffsetX) / TileSize
-	gridY := (mouseY - GridOffsetY) / TileSize
+	gridX := (mouseX - GridOffsetX) / rs.currentTileSize
+	gridY := (mouseY - GridOffsetY) / rs.currentTileSize
 	
 	// Check if hover is valid
 	if board.CanBuildBridge(gridX, gridY) {
-		x := GridOffsetX + gridX*TileSize
-		y := GridOffsetY + gridY*TileSize
+		x := GridOffsetX + gridX*rs.currentTileSize
+		y := GridOffsetY + gridY*rs.currentTileSize
 		
 		// Draw hover highlight
-		highlight := ebiten.NewImage(TileSize, TileSize)
+		highlight := ebiten.NewImage(rs.currentTileSize, rs.currentTileSize)
 		highlight.Fill(color.RGBA{255, 255, 255, 64})
 		
 		opt := &ebiten.DrawImageOptions{}
@@ -85,7 +143,7 @@ func (rs *RenderSystem) DrawHover(screen *ebiten.Image, board *island.Board, mou
 		vector.StrokeRect(
 			screen,
 			float32(x), float32(y),
-			float32(TileSize), float32(TileSize),
+			float32(rs.currentTileSize), float32(rs.currentTileSize),
 			2,
 			color.RGBA{255, 255, 255, 128},
 			false,
@@ -94,6 +152,10 @@ func (rs *RenderSystem) DrawHover(screen *ebiten.Image, board *island.Board, mou
 }
 
 func (rs *RenderSystem) drawBoard(screen *ebiten.Image, board *island.Board) {
+	if board == nil {
+		return
+	}
+	
 	for y := 0; y < board.Height; y++ {
 		for x := 0; x < board.Width; x++ {
 			tile := board.GetTile(x, y)
@@ -103,7 +165,7 @@ func (rs *RenderSystem) drawBoard(screen *ebiten.Image, board *island.Board) {
 			
 			// Draw tile
 			opt := &ebiten.DrawImageOptions{}
-			opt.GeoM.Translate(float64(GridOffsetX+x*TileSize), float64(GridOffsetY+y*TileSize))
+			opt.GeoM.Translate(float64(GridOffsetX+x*rs.currentTileSize), float64(GridOffsetY+y*rs.currentTileSize))
 			
 			if img, ok := rs.tileImages[tile.Type]; ok {
 				screen.DrawImage(img, opt)
@@ -122,10 +184,10 @@ func (rs *RenderSystem) drawGridLines(screen *ebiten.Image, x, y int) {
 	// Horizontal line
 	vector.StrokeLine(
 		screen,
-		float32(GridOffsetX+x*TileSize),
-		float32(GridOffsetY+y*TileSize),
-		float32(GridOffsetX+(x+1)*TileSize),
-		float32(GridOffsetY+y*TileSize),
+		float32(GridOffsetX+x*rs.currentTileSize),
+		float32(GridOffsetY+y*rs.currentTileSize),
+		float32(GridOffsetX+(x+1)*rs.currentTileSize),
+		float32(GridOffsetY+y*rs.currentTileSize),
 		lineWidth,
 		gridColor,
 		false,
@@ -134,10 +196,10 @@ func (rs *RenderSystem) drawGridLines(screen *ebiten.Image, x, y int) {
 	// Vertical line
 	vector.StrokeLine(
 		screen,
-		float32(GridOffsetX+x*TileSize),
-		float32(GridOffsetY+y*TileSize),
-		float32(GridOffsetX+x*TileSize),
-		float32(GridOffsetY+(y+1)*TileSize),
+		float32(GridOffsetX+x*rs.currentTileSize),
+		float32(GridOffsetY+y*rs.currentTileSize),
+		float32(GridOffsetX+x*rs.currentTileSize),
+		float32(GridOffsetY+(y+1)*rs.currentTileSize),
 		lineWidth,
 		gridColor,
 		false,
@@ -185,14 +247,14 @@ func (rs *RenderSystem) DrawAnimations(screen *ebiten.Image, animations []*Anima
 
 func (rs *RenderSystem) drawBridgeBuildAnimation(screen *ebiten.Image, anim *Animation) {
 	// Calculate position
-	x := float64(GridOffsetX + anim.X*TileSize + TileSize/2)
-	y := float64(GridOffsetY + anim.Y*TileSize + TileSize/2)
+	x := float64(GridOffsetX + anim.X*rs.currentTileSize + rs.currentTileSize/2)
+	y := float64(GridOffsetY + anim.Y*rs.currentTileSize + rs.currentTileSize/2)
 	
 	// Easing animation
 	progress := EaseOutCubic(anim.Progress)
 	
 	// Expanding circle effect
-	radius := float32(progress * float64(TileSize) * 0.8)
+	radius := float32(progress * float64(rs.currentTileSize) * 0.8)
 	alpha := uint8((1.0 - progress) * 200)
 	
 	// Draw expanding circle
