@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image/color"
 
+	"math"
+	
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -57,6 +59,36 @@ func (rs *RenderSystem) Draw(screen *ebiten.Image, board *island.Board, moves in
 	// Draw victory message if won
 	if gameWon {
 		rs.drawVictory(screen)
+	}
+}
+
+func (rs *RenderSystem) DrawHover(screen *ebiten.Image, board *island.Board, mouseX, mouseY int) {
+	// Convert mouse to grid coordinates
+	gridX := (mouseX - GridOffsetX) / TileSize
+	gridY := (mouseY - GridOffsetY) / TileSize
+	
+	// Check if hover is valid
+	if board.CanBuildBridge(gridX, gridY) {
+		x := GridOffsetX + gridX*TileSize
+		y := GridOffsetY + gridY*TileSize
+		
+		// Draw hover highlight
+		highlight := ebiten.NewImage(TileSize, TileSize)
+		highlight.Fill(color.RGBA{255, 255, 255, 64})
+		
+		opt := &ebiten.DrawImageOptions{}
+		opt.GeoM.Translate(float64(x), float64(y))
+		screen.DrawImage(highlight, opt)
+		
+		// Draw border
+		vector.StrokeRect(
+			screen,
+			float32(x), float32(y),
+			float32(TileSize), float32(TileSize),
+			2,
+			color.RGBA{255, 255, 255, 128},
+			false,
+		)
 	}
 }
 
@@ -137,4 +169,54 @@ func (rs *RenderSystem) drawVictory(screen *ebiten.Image) {
 	y := bounds.Dy()/2
 	
 	ebitenutil.DebugPrintAt(screen, msg, x, y)
+}
+
+func (rs *RenderSystem) DrawAnimations(screen *ebiten.Image, animations []*Animation) {
+	for _, anim := range animations {
+		switch anim.Type {
+		case AnimationBridgeBuild:
+			rs.drawBridgeBuildAnimation(screen, anim)
+		case AnimationVictory:
+			rs.drawVictoryAnimation(screen, anim)
+		}
+	}
+}
+
+func (rs *RenderSystem) drawBridgeBuildAnimation(screen *ebiten.Image, anim *Animation) {
+	// Calculate position
+	x := float64(GridOffsetX + anim.X*TileSize + TileSize/2)
+	y := float64(GridOffsetY + anim.Y*TileSize + TileSize/2)
+	
+	// Easing animation
+	progress := EaseOutCubic(anim.Progress)
+	
+	// Expanding circle effect
+	radius := float32(progress * float64(TileSize) * 0.8)
+	alpha := uint8((1.0 - progress) * 200)
+	
+	// Draw expanding circle
+	vector.DrawFilledCircle(
+		screen,
+		float32(x), float32(y),
+		radius,
+		color.RGBA{121, 85, 72, alpha},
+		false,
+	)
+}
+
+func (rs *RenderSystem) drawVictoryAnimation(screen *ebiten.Image, anim *Animation) {
+	// Pulsing victory effect
+	progress := anim.Progress
+	pulse := math.Sin(progress * math.Pi * 4) * 0.1 + 1.0
+	
+	// Draw pulsing overlay
+	overlay := ebiten.NewImage(640, 480)
+	alpha := uint8(100 + 50*math.Sin(progress*math.Pi*2))
+	overlay.Fill(color.RGBA{255, 215, 0, alpha}) // Gold color
+	
+	opt := &ebiten.DrawImageOptions{}
+	opt.GeoM.Scale(pulse, pulse)
+	opt.GeoM.Translate((1-pulse)*320, (1-pulse)*240)
+	
+	screen.DrawImage(overlay, opt)
 }

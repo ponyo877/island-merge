@@ -17,7 +17,7 @@ type Action struct {
 }
 
 type InputSystem struct {
-	lastMouseX, lastMouseY int
+	MouseX, MouseY int
 }
 
 func NewInputSystem() *InputSystem {
@@ -36,7 +36,7 @@ func (is *InputSystem) Update() *Action {
 	}
 	
 	// Update mouse position for potential hover effects
-	is.lastMouseX, is.lastMouseY = ebiten.CursorPosition()
+	is.MouseX, is.MouseY = ebiten.CursorPosition()
 	
 	return nil
 }
