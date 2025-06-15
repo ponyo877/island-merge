@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Merge</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+
+        #game-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #game-canvas {
+            border: 2px solid #ddd;
+            display: block;
+        }
+
+        h1 {
+            text-align: center;
+            margin: 0 0 20px 0;
+            color: #333;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .controls {
+            margin-top: 20px;
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <script src="wasm_exec.js"></script>
+    <script>
+        const go = new Go();
+
+        WebAssembly.instantiateStreaming(fetch("wasm/game.wasm"), go.importObject).then((result) => {
+            go.run(result.instance);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('game-canvas').style.display = 'block';
+        }).catch((err) => {
+            console.error(err);
+            document.getElementById('loading').innerHTML = 'Error loading game: ' + err.message;
+        });
+    </script>
+</body>
+
+</html>
