@@ -5,6 +5,7 @@ import (
 	"image/color"
 
 	"math"
+	"time"
 	
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -219,4 +220,51 @@ func (rs *RenderSystem) drawVictoryAnimation(screen *ebiten.Image, anim *Animati
 	opt.GeoM.Translate((1-pulse)*320, (1-pulse)*240)
 	
 	screen.DrawImage(overlay, opt)
+}
+
+func (rs *RenderSystem) DrawGameMode(screen *ebiten.Image, world interface{}) {
+	// Type assertion to avoid circular import
+	type gameWorld interface {
+		GetMode() int
+		GetScore() interface {
+			GetMoves() int
+			GetTime() time.Duration
+		}
+		GetTimeLimit() time.Duration
+		GetState() int
+	}
+	
+	if w, ok := world.(gameWorld); ok {
+		mode := w.GetMode()
+		score := w.GetScore()
+		
+		// Draw mode-specific UI
+		var modeText string
+		switch mode {
+		case 0: // ModeClassic
+			modeText = "Classic Mode"
+		case 1: // ModeTimeAttack
+			modeText = "Time Attack"
+			// Draw timer
+			remaining := w.GetTimeLimit() - score.GetTime()
+			if remaining < 0 {
+				remaining = 0
+			}
+			timerText := fmt.Sprintf("Time: %02d:%02d", 
+				int(remaining.Minutes()), int(remaining.Seconds())%60)
+			ebitenutil.DebugPrintAt(screen, timerText, 450, 10)
+		case 2: // ModePuzzle
+			modeText = "Puzzle Mode"
+		}
+		
+		ebitenutil.DebugPrintAt(screen, modeText, 450, 30)
+		
+		// Draw score
+		scoreText := fmt.Sprintf("Moves: %d", score.GetMoves())
+		ebitenutil.DebugPrintAt(screen, scoreText, 450, 50)
+		
+		timeText := fmt.Sprintf("Time: %02d:%02d", 
+			int(score.GetTime().Minutes()), int(score.GetTime().Seconds())%60)
+		ebitenutil.DebugPrintAt(screen, timeText, 450, 70)
+	}
 }
