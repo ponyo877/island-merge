@@ -4,27 +4,30 @@ import (
 	"time"
 	
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/ponyo877/island-merge/pkg/editor"
 	"github.com/ponyo877/island-merge/pkg/island"
 	"github.com/ponyo877/island-merge/pkg/systems"
 	"github.com/ponyo877/island-merge/pkg/ui"
 )
 
 type Game struct {
-	world     *World
-	input     *systems.InputSystem
-	render    *systems.RenderSystem
-	animation *systems.AnimationSystem
-	mainMenu  *ui.Menu
+	world       *World
+	input       *systems.InputSystem
+	render      *systems.RenderSystem
+	animation   *systems.AnimationSystem
+	mainMenu    *ui.Menu
+	levelEditor *editor.LevelEditor
 }
 
 func NewGame() *Game {
 	game := &Game{
-		input:     systems.NewInputSystem(),
-		render:    systems.NewRenderSystem(),
-		animation: systems.NewAnimationSystem(),
+		input:       systems.NewInputSystem(),
+		render:      systems.NewRenderSystem(),
+		animation:   systems.NewAnimationSystem(),
+		levelEditor: editor.NewLevelEditor(),
 	}
 	
-	game.mainMenu = ui.NewMainMenu(game.startGameMode)
+	game.mainMenu = ui.NewMainMenu(game.handleMenuAction)
 	
 	// Initialize with menu state
 	game.world = &World{
@@ -33,6 +36,14 @@ func NewGame() *Game {
 	}
 	
 	return game
+}
+
+func (g *Game) handleMenuAction(action int) {
+	if action == 3 { // Level Editor
+		g.world.State = StateLevelEditor
+	} else {
+		g.startGameMode(action)
+	}
 }
 
 func (g *Game) startGameMode(mode int) {
@@ -64,6 +75,10 @@ func (g *Game) Update() error {
 			g.mainMenu.Update(action.X, action.Y, action.Type == systems.ActionClick)
 		case StatePlaying:
 			g.handleGameAction(action)
+		case StateLevelEditor:
+			if g.levelEditor.Update(action.X, action.Y, action.Type == systems.ActionClick) {
+				g.world.State = StateMenu // Return to menu
+			}
 		}
 	}
 	
@@ -101,6 +116,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.render.DrawGameMode(screen, g.world)
 		}
 		g.render.DrawAnimations(screen, g.animation.GetAnimations())
+	case StateLevelEditor:
+		g.levelEditor.Draw(screen)
 	}
 }
 

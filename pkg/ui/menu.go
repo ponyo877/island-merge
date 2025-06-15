@@ -39,7 +39,7 @@ func NewMainMenu(onModeSelect func(int)) *Menu {
 		{"Classic Mode", func() { onModeSelect(0) }}, // ModeClassic
 		{"Time Attack", func() { onModeSelect(1) }}, // ModeTimeAttack
 		{"Puzzle Mode", func() { onModeSelect(2) }}, // ModePuzzle
-		{"Level Editor", nil}, // TODO: Implement
+		{"Level Editor", func() { onModeSelect(3) }}, // Level Editor
 	}
 	
 	startY := 200.0
