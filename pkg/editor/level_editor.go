@@ -28,12 +28,13 @@ const (
 )
 
 type LevelEditor struct {
-	Board      *island.Board
-	Mode       EditorMode
-	Tool       Tool
-	IsPlaying  bool
-	TestBoard  *island.Board // For testing the level
-	UIButtons  []*UIButton
+	Board          *island.Board
+	Mode           EditorMode
+	Tool           Tool
+	IsPlaying      bool
+	TestBoard      *island.Board // For testing the level
+	UIButtons      []*UIButton
+	OnLevelCreated func()        // Callback for achievement tracking
 }
 
 type UIButton struct {
@@ -200,6 +201,11 @@ func (le *LevelEditor) exportLevel() {
 	// In a real implementation, this would save to file or clipboard
 	fmt.Println("Level exported:")
 	fmt.Println(string(jsonData))
+	
+	// Notify achievement system (this will be called from the game)
+	if le.OnLevelCreated != nil {
+		le.OnLevelCreated()
+	}
 }
 
 func (le *LevelEditor) createLevelData() map[string]interface{} {

@@ -4,6 +4,7 @@ import (
 	"time"
 	
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/ponyo877/island-merge/pkg/achievements"
 	"github.com/ponyo877/island-merge/pkg/editor"
 	"github.com/ponyo877/island-merge/pkg/island"
 	"github.com/ponyo877/island-merge/pkg/systems"
@@ -11,20 +12,33 @@ import (
 )
 
 type Game struct {
-	world       *World
-	input       *systems.InputSystem
-	render      *systems.RenderSystem
-	animation   *systems.AnimationSystem
-	mainMenu    *ui.Menu
-	levelEditor *editor.LevelEditor
+	world           *World
+	input           *systems.InputSystem
+	render          *systems.RenderSystem
+	animation       *systems.AnimationSystem
+	mainMenu        *ui.Menu
+	levelEditor     *editor.LevelEditor
+	achievementSys  *achievements.AchievementSystem
+	achievementUI   *ui.AchievementsUI
 }
 
 func NewGame() *Game {
+	achievementSys := achievements.NewAchievementSystem()
+	
+	levelEditor := editor.NewLevelEditor()
+	
 	game := &Game{
-		input:       systems.NewInputSystem(),
-		render:      systems.NewRenderSystem(),
-		animation:   systems.NewAnimationSystem(),
-		levelEditor: editor.NewLevelEditor(),
+		input:          systems.NewInputSystem(),
+		render:         systems.NewRenderSystem(),
+		animation:      systems.NewAnimationSystem(),
+		levelEditor:    levelEditor,
+		achievementSys: achievementSys,
+		achievementUI:  ui.NewAchievementsUI(achievementSys),
+	}
+	
+	// Set up level editor callback
+	levelEditor.OnLevelCreated = func() {
+		achievementSys.OnLevelCreated()
 	}
 	
 	game.mainMenu = ui.NewMainMenu(game.handleMenuAction)
@@ -62,22 +76,33 @@ func (g *Game) startGameMode(mode int) {
 	if mode == 1 { // ModeTimeAttack
 		g.world.TimeLimit = time.Minute * 2 // 2 minutes
 	}
+	
+	// Track game start
+	g.achievementSys.OnGameStart()
 }
 
 func (g *Game) Update() error {
-	// Update animations
+	// Update animations and achievements UI
 	g.animation.Update()
+	g.achievementUI.Update()
 	
 	// Handle input based on game state
 	if action := g.input.Update(); action != nil {
-		switch g.world.State {
-		case StateMenu:
-			g.mainMenu.Update(action.X, action.Y, action.Type == systems.ActionClick)
-		case StatePlaying:
-			g.handleGameAction(action)
-		case StateLevelEditor:
-			if g.levelEditor.Update(action.X, action.Y, action.Type == systems.ActionClick) {
-				g.world.State = StateMenu // Return to menu
+		// Check for achievement button click first
+		if action.Type == systems.ActionClick && g.achievementUI.IsAchievementButtonClicked(action.X, action.Y) {
+			g.achievementUI.TogglePanel()
+		} else if g.achievementUI.HandleClick(action.X, action.Y) {
+			// Achievement UI handled the click
+		} else {
+			switch g.world.State {
+			case StateMenu:
+				g.mainMenu.Update(action.X, action.Y, action.Type == systems.ActionClick)
+			case StatePlaying:
+				g.handleGameAction(action)
+			case StateLevelEditor:
+				if g.levelEditor.Update(action.X, action.Y, action.Type == systems.ActionClick) {
+					g.world.State = StateMenu // Return to menu
+				}
 			}
 		}
 	}
@@ -99,6 +124,14 @@ func (g *Game) Update() error {
 			g.world.GameWon = true
 			// Add victory animation
 			g.animation.AddAnimation(systems.AnimationVictory, 320, 240, time.Second*2)
+			
+			// Track achievement progress
+			gameTime := g.world.Score.Time
+			moves := g.world.Score.Moves
+			isTimeAttack := g.world.Mode == ModeTimeAttack
+			isPerfect := moves <= 2 // For the basic level, optimal is 2 moves
+			
+			g.achievementSys.OnGameWin(moves, gameTime, isTimeAttack, isPerfect)
 		}
 	}
 	
@@ -116,9 +149,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.render.DrawGameMode(screen, g.world)
 		}
 		g.render.DrawAnimations(screen, g.animation.GetAnimations())
+		// Draw achievement button and UI
+		g.achievementUI.DrawAchievementButton(screen, 500, 10)
 	case StateLevelEditor:
 		g.levelEditor.Draw(screen)
 	}
+	
+	// Always draw achievement notifications and panel on top
+	g.achievementUI.Draw(screen)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
@@ -138,6 +176,8 @@ func (g *Game) handleGameAction(action *systems.Action) {
 			g.world.Score.Moves++
 			// Add build animation
 			g.animation.AddAnimation(systems.AnimationBridgeBuild, gridX, gridY, time.Millisecond*500)
+			// Track bridge building achievement
+			g.achievementSys.OnBridgeBuilt()
 		}
 	}
 }
